@@ -1,0 +1,123 @@
+clear;
+close all;
+
+folder = 'C:\Users\eyalg\Desktop\RetinasAnalysis\Base11';
+fileList = dir(fullfile(folder, '/*.tif'));
+randomIndex = randi(length(fileList), 1, 1); % Get random number.
+fullFileName = fullfile(folder, fileList(randomIndex).name);
+image_originale = imread(fullFileName);
+
+% Chargement de l'image
+%image_originale = imread('Base11/20051019_38557_0100_PP.tif');  % Remplacez 'votre_image.png' par le chemin de votre image
+figure;
+subplot(2, 3, 1);
+imshow(image_originale);
+title('Image originale');
+
+% Extraction du canal vert en 2D (b)
+canal_vert = image_originale; % Sélection du canal vert
+canal_vert(:,:,1) = 0;
+canal_vert(:,:,3) = 0;
+subplot(2, 3, 2);
+imshow(canal_vert);
+title('Canal Vert');
+
+% Conversion en niveaux de gris (c)
+niveaux_de_gris = rgb2gray(image_originale);
+subplot(2, 3, 3);
+imshow(niveaux_de_gris);
+title('Niveaux de gris');
+
+% Filtrage pour extraire les vaisseaux (d)
+Resized_Image = imresize(image_originale, [584 565]);
+Converted_Image = im2double(Resized_Image);
+Lab_Image = rgb2lab(Converted_Image);
+
+fill = cat(3, 1, 0, 0);
+
+Filled_Image = bsxfun(@times, fill, Lab_Image);
+
+Reshaped_Lab_Image = reshape(Filled_Image, [], 3);
+
+[C, S] = pca(Reshaped_Lab_Image);
+
+S = reshape(S, size(Lab_Image));
+S = S(:, :, 1);
+
+Gray_Image = (S - min(S(:))) / (max(S(:)) - min(S(:)));
+
+Enhanced_Image = adapthisteq(Gray_Image, 'numTiles', [8 8], 'nBins', 128);
+
+Avg_Filter = fspecial('average', [9 9]);
+
+Filtered_Image = imfilter(Enhanced_Image, Avg_Filter);
+
+subplot(2, 3, 4);
+imshow(Filtered_Image);
+title("Résultats de l'extraction");
+
+% Binarisation (e)
+Subtracted_Image = imsubtract(Filtered_Image, Enhanced_Image);
+
+level = Threshold_Level(Subtracted_Image);
+
+Binary_Image = imbinarize(Subtracted_Image, level - 0.008);
+
+subplot(2, 3, 5);
+imshow(Binary_Image);
+title('Image binarisée');
+
+% Génération du masque (f)
+masque = imfill(Binary_Image, 'holes');
+subplot(2, 3, 6);
+imshow(masque);
+title('Génération du masque');
+
+% Image segmentée (g)
+% Remove small connected components from the binary image
+Clean_Image = bwareaopen(Binary_Image, 100);
+
+
+
+function level = Threshold_Level(Image)
+
+Image = im2uint8(Image(:));
+[Histogram_Count,Bin_Number]=imhist(Image);
+
+i = 1;
+
+Cumulative_Sum = cumsum(Histogram_Count);
+T(i) = (sum(Bin_Number.*Histogram_Count))/Cumulative_Sum(end);
+
+T(i) = round(T(i));
+
+Cumulative_Sum_2 = cumsum(Histogram_Count(1:T(i)));
+MBT = sum(Bin_Number(1:T(i)).*Histogram_Count(1:T(i)))/Cumulative_Sum_2(end);
+
+Cumulative_Sum_3 = cumsum(Histogram_Count(T(i):end));
+MAT = sum(Bin_Number(T(i):end).*Histogram_Count(T(i):end))/Cumulative_Sum_3(end);
+
+i = i + 1;
+T(i) = round((MAT + MBT)/2);
+
+% Ensure that T(i) and T(i+1) are distinct initially
+while T(i) == T(i-1)
+    T(i) = T(i) + 1;
+end
+
+while abs(T(i)-T(i-1)) >= 1
+    Cumulative_Sum_2 = cumsum(Histogram_Count(1:T(i)));
+    MBT = sum(Bin_Number(1:T(i)).*Histogram_Count(1:T(i)))/Cumulative_Sum_2(end);
+    
+    Cumulative_Sum_3 = cumsum(Histogram_Count(T(i):end));
+    MAT = sum(Bin_Number(T(i):end).*Histogram_Count(T(i):end))/Cumulative_Sum_3(end);
+    
+    i = i + 1;
+    T(i) = round((MAT + MBT)/2);
+    
+    Threshold = T(i);
+end
+
+level = (Threshold - 1) / (Bin_Number(end) - 1);
+end
+
